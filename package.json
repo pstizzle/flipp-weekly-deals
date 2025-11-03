@@ -1,0 +1,9 @@
+{
+  "name": "flipp-weekly-deals",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Fetches weekly deals from Flipp",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}
