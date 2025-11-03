@@ -1,4 +1,4 @@
-// === Flipp Weekly Ad Fetcher (HTML parser version) ===
+// === Flipp Weekly Ad Fetcher (HTML embed version) ===
 import fs from "node:fs";
 
 const ZIP = "85383";
@@ -11,44 +11,55 @@ const STORES = [
   "Target"
 ];
 
+const URL = `https://flipp.com/en-us/weekly_ads?postal_code=${ZIP}`;
 const HEADERS = {
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   Accept: "text/html",
 };
 
-async function getWeeklyDeals() {
-  console.log("Fetching Flipp weekly ads...");
-  const res = await fetch(`https://flipp.com/en-us/weekly_ads?postal_code=${ZIP}`, {
-    headers: HEADERS,
-  });
-  const html = await res.text();
+async function safeFetch(url) {
+  const res = await fetch(url, { headers: HEADERS });
+  const txt = await res.text();
+  return txt;
+}
 
-  // Extract JSON embedded in the HTML (look for __NEXT_DATA__)
-  const jsonMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
-  if (!jsonMatch) {
-    console.error("❌ Could not find JSON in page");
+async function getWeeklyDeals() {
+  console.log("🚀 Fetching Flipp weekly ads page...");
+  const html = await safeFetch(URL);
+
+  // Extract JSON embedded in <script id="__NEXT_DATA__" type="application/json">
+  const match = html.match(
+    /<script\s+id="__NEXT_DATA__"\s+type="application\/json">(.*?)<\/script>/s
+  );
+  if (!match) {
+    console.error("❌ Unable to locate embedded JSON in the HTML");
     fs.writeFileSync("weekly_deals.json", "[]");
     return;
   }
 
-  const embeddedData = JSON.parse(jsonMatch[1]);
-  const flyers = embeddedData?.props?.pageProps?.flyers || [];
+  const data = JSON.parse(match[1]);
+  const flyers = data?.props?.pageProps?.flyers || [];
   console.log(`📦 Found ${flyers.length} flyers near ${ZIP}`);
 
   const allDeals = [];
-  for (const flyer of flyers) {
-    const name = flyer?.merchant?.name || "Unknown";
-    if (!STORES.includes(name)) continue;
 
-    // Extract item summaries if present
+  for (const flyer of flyers) {
+    const storeName = flyer.merchant?.name;
+    if (!STORES.includes(storeName)) continue;
+
+    console.log(`🔍 Processing store: ${storeName} (id: ${flyer.id})`);
     const items = flyer.items || flyer.featured_items || [];
-    for (const i of items) {
+    console.log(`→ Found ${items.length} items`);
+
+    for (const item of items) {
       allDeals.push({
-        store: name,
-        item: i.name || i.title || "Unnamed",
-        price: i.current_price || i.price_text || "",
-        valid_to: flyer.valid_to,
+        store: storeName,
+        item: item.name || item.title || "Unnamed Item",
+        price: item.current_price || item.price_text || null,
+        category: item.category || "Uncategorized",
+        valid_to: flyer.valid_to || null
       });
     }
   }
@@ -58,6 +69,6 @@ async function getWeeklyDeals() {
 }
 
 getWeeklyDeals().catch(err => {
-  console.error("❌ Error:", err);
+  console.error("❌ Error during fetch:", err);
   process.exit(1);
 });
