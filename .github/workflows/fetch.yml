@@ -1,0 +1,32 @@
+name: Fetch Flipp Deals
+
+on:
+  schedule:
+    - cron: "0 14 * * 4"  # Every Thursday at 7 AM MST (14:00 UTC)
+  workflow_dispatch:  # Allow manual runs
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies and run fetcher
+        run: |
+          npm install node-fetch@3
+          node fetch_flipp.js
+
+      - name: Commit and push updated JSON
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add weekly_deals.json || echo "No changes to commit"
+          git commit -m "Updated weekly deals" || echo "No changes to commit"
+          git push
