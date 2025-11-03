@@ -1,8 +1,5 @@
-// === Flipp Weekly Ad Fetcher (CommonJS version) ===
-// Works on GitHub Actions out of the box
-
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-const fs = require('fs');
+// === Flipp Weekly Ad Fetcher (fixed for GitHub Actions) ===
+import fs from "node:fs";
 
 const ZIP = "85383";
 const STORES = [
@@ -15,36 +12,50 @@ const STORES = [
 ];
 
 const BASE = "https://backflipp.wishabi.com/flipp";
+const HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Accept: "application/json",
+};
 
-(async () => {
+async function safeFetchJSON(url) {
+  const res = await fetch(url, { headers: HEADERS });
+  const text = await res.text();
   try {
-    console.log("Fetching flyers...");
-    const flyersRes = await fetch(`${BASE}/services/flyers?postal_code=${ZIP}`);
-    const flyers = await flyersRes.json();
-
-    const selectedFlyers = flyers.filter(f => STORES.includes(f.merchant?.name));
-    const allDeals = [];
-
-    for (const flyer of selectedFlyers) {
-      console.log(`Fetching deals for ${flyer.merchant.name}...`);
-      const itemsRes = await fetch(`${BASE}/flyers/${flyer.id}/items`);
-      const items = await itemsRes.json();
-
-      for (const i of items) {
-        allDeals.push({
-          store: flyer.merchant.name,
-          item: i.name,
-          price: i.current_price,
-          category: i.category,
-          valid_to: flyer.valid_to
-        });
-      }
-    }
-
-    fs.writeFileSync("weekly_deals.json", JSON.stringify(allDeals, null, 2));
-    console.log(`✅ Saved ${allDeals.length} deals to weekly_deals.json`);
-  } catch (err) {
-    console.error("❌ Error:", err);
-    process.exit(1);
+    return JSON.parse(text);
+  } catch {
+    console.error("⚠️ Non-JSON response from", url.slice(0, 80));
+    return [];
   }
-})();
+}
+
+async function getWeeklyDeals() {
+  console.log("Fetching flyers...");
+  const flyers = await safeFetchJSON(`${BASE}/services/flyers?postal_code=${ZIP}`);
+
+  const selected = flyers.filter(f => STORES.includes(f.merchant?.name));
+  const allDeals = [];
+
+  for (const flyer of selected) {
+    console.log(`Fetching deals for ${flyer.merchant.name}...`);
+    const items = await safeFetchJSON(`${BASE}/flyers/${flyer.id}/items`);
+
+    for (const i of items) {
+      allDeals.push({
+        store: flyer.merchant.name,
+        item: i.name,
+        price: i.current_price,
+        category: i.category,
+        valid_to: flyer.valid_to,
+      });
+    }
+  }
+
+  fs.writeFileSync("weekly_deals.json", JSON.stringify(allDeals, null, 2));
+  console.log(`✅ Saved ${allDeals.length} deals`);
+}
+
+getWeeklyDeals().catch(err => {
+  console.error("❌ Error:", err);
+  process.exit(1);
+});
