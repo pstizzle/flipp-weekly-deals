@@ -1,4 +1,4 @@
-// === Flipp Weekly Ad Fetcher (fixed for GitHub Actions) ===
+// === Flipp Weekly Ad Fetcher (2025 endpoint) ===
 import fs from "node:fs";
 
 const ZIP = "85383";
@@ -11,7 +11,7 @@ const STORES = [
   "Target"
 ];
 
-const BASE = "https://backflipp.wishabi.com/flipp";
+const BASE = "https://flipp.com";
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -24,22 +24,29 @@ async function safeFetchJSON(url) {
   try {
     return JSON.parse(text);
   } catch {
-    console.error("⚠️ Non-JSON response from", url.slice(0, 80));
+    console.error("⚠️ Non-JSON or empty response from:", url);
+    console.error(text.slice(0, 300));
     return [];
   }
 }
 
 async function getWeeklyDeals() {
-  console.log("Fetching flyers...");
-  const flyers = await safeFetchJSON(`${BASE}/services/flyers?postal_code=${ZIP}`);
+  console.log("Fetching flyers from Flipp...");
+  const flyers = await safeFetchJSON(`${BASE}/flyers?postal_code=${ZIP}`);
+
+  console.log(`📦 Got ${flyers.length} flyers near ${ZIP}`);
 
   const selected = flyers.filter(f => STORES.includes(f.merchant?.name));
+  console.log(`✅ Selected ${selected.length} favorite stores`);
+
   const allDeals = [];
 
   for (const flyer of selected) {
-    console.log(`Fetching deals for ${flyer.merchant.name}...`);
-    const items = await safeFetchJSON(`${BASE}/flyers/${flyer.id}/items`);
+    console.log(`Fetching deals for ${flyer.merchant.name} (id ${flyer.id})...`);
+    const flyerData = await safeFetchJSON(`${BASE}/flyers/${flyer.id}?postal_code=${ZIP}`);
+    const items = flyerData.items || [];
 
+    console.log(`→ Got ${items.length} items`);
     for (const i of items) {
       allDeals.push({
         store: flyer.merchant.name,
