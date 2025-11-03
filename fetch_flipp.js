@@ -1,16 +1,7 @@
-// === Flipp Weekly Ad Fetcher (HTML embed version) ===
 import fs from "node:fs";
+import fetch from "node-fetch";
 
 const ZIP = "85383";
-const STORES = [
-  "Fry's Food Stores",
-  "Walmart",
-  "Safeway",
-  "Sprouts Farmers Market",
-  "Costco Wholesale",
-  "Target"
-];
-
 const URL = `https://flipp.com/en-us/weekly_ads?postal_code=${ZIP}`;
 const HEADERS = {
   "User-Agent":
@@ -21,54 +12,60 @@ const HEADERS = {
 
 async function safeFetch(url) {
   const res = await fetch(url, { headers: HEADERS });
-  const txt = await res.text();
-  return txt;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.text();
 }
 
 async function getWeeklyDeals() {
   console.log("🚀 Fetching Flipp weekly ads page...");
   const html = await safeFetch(URL);
 
-  // Extract JSON embedded in <script id="__NEXT_DATA__" type="application/json">
-  const match = html.match(
-    /<script\s+id="__NEXT_DATA__"\s+type="application\/json">(.*?)<\/script>/s
-  );
+  // Flipp now uses a JSON blob in window.__FLIPP_DATA__ or similar
+  const match =
+    html.match(/window\.__FLIPP_DATA__\s*=\s*(\{.*?\});/) ||
+    html.match(/<script[^>]*>.*?(?:__NEXT_DATA__|__APOLLO_STATE__)\s*=\s*(\{.*?\})<\/script>/s);
+
   if (!match) {
-    console.error("❌ Unable to locate embedded JSON in the HTML");
+    console.error("❌ Still can't locate embedded JSON. Flipp may have changed again.");
     fs.writeFileSync("weekly_deals.json", "[]");
     return;
   }
 
-  const data = JSON.parse(match[1]);
-  const flyers = data?.props?.pageProps?.flyers || [];
+  let data;
+  try {
+    data = JSON.parse(match[1]);
+  } catch (err) {
+    console.error("❌ JSON parse failed:", err);
+    fs.writeFileSync("weekly_deals.json", "[]");
+    return;
+  }
+
+  // Try common nesting paths
+  const flyers =
+    data?.props?.pageProps?.flyers ||
+    data?.pageProps?.flyers ||
+    data?.data?.flyers ||
+    [];
   console.log(`📦 Found ${flyers.length} flyers near ${ZIP}`);
 
-  const allDeals = [];
-
+  const deals = [];
   for (const flyer of flyers) {
-    const storeName = flyer.merchant?.name;
-    if (!STORES.includes(storeName)) continue;
-
-    console.log(`🔍 Processing store: ${storeName} (id: ${flyer.id})`);
-    const items = flyer.items || flyer.featured_items || [];
-    console.log(`→ Found ${items.length} items`);
-
+    const store = flyer?.merchant?.name || flyer?.merchant_name;
+    const items = flyer?.items || flyer?.featured_items || [];
     for (const item of items) {
-      allDeals.push({
-        store: storeName,
-        item: item.name || item.title || "Unnamed Item",
-        price: item.current_price || item.price_text || null,
-        category: item.category || "Uncategorized",
-        valid_to: flyer.valid_to || null
+      deals.push({
+        store,
+        name: item.name || item.title || "Unnamed",
+        price: item.current_price || item.price_text || "—",
       });
     }
   }
 
-  fs.writeFileSync("weekly_deals.json", JSON.stringify(allDeals, null, 2));
-  console.log(`✅ Saved ${allDeals.length} deals`);
+  fs.writeFileSync("weekly_deals.json", JSON.stringify(deals, null, 2));
+  console.log(`✅ Saved ${deals.length} deals`);
 }
 
-getWeeklyDeals().catch(err => {
-  console.error("❌ Error during fetch:", err);
+getWeeklyDeals().catch((err) => {
+  console.error("❌ Error:", err);
   process.exit(1);
 });
